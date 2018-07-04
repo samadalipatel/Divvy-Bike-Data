@@ -1,0 +1,623 @@
+---
+title: "Analysis of Divvy Data"
+author: "Samad Patel"
+date: "6/29/2018"
+output: pdf_document
+fig.align: "center"
+---
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load relevant libraries 
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+library(gridExtra)
+library(ggmap) # map data 
+library(sp) # to get distances from lats and longs 
+library(grDevices)
+library(RColorBrewer)
+```
+
+The purpose of this document is to conduct a exploratory data analysis of Divvy's Chicago Bicyle Data. This will be broken down into basic EDA based on some of the demographic data, and then spatial analysis. 
+
+```{r, message=FALSE, tidy=TRUE, echo = FALSE}
+bike <- read_csv('~/Desktop/Divvy/divvybikedata.csv')
+```
+
+The data is already clean, meaning that there are no missing values, duplicates, or unusually coded classes. We can hop straight into the visualization. 
+
+# Basic EDA
+## Year
+
+```{r, message=FALSE, warning=FALSE, echo = FALSE}
+x <- bike %>% group_by(year) %>% summarize('Num_Rides' = n())
+ggplot(x, aes(year, Num_Rides, fill = as.character(year))) + 
+   geom_bar(stat = 'identity') + theme_fivethirtyeight() + 
+   scale_fill_canva(palette = 'Cool blues') + 
+   theme(legend.position = 'none', 
+         axis.text.y =  element_text(angle = 45, margin = margin(0,0,0,5)), 
+         axis.title = element_text(size = 16),
+         plot.title = element_text(size = 20, hjust = 0.5)) + 
+   scale_y_continuous(labels = scales::comma) + ylab('Number of Rides') + xlab('Year') +
+   ggtitle('Yearly Growth of Divvy Rides')
+```
+
+We observe that Divvy is improving year by year in number of customers. 
+
+## Month
+```{r, echo = FALSE}
+### month ### 
+x <- bike %>% group_by(month) %>% summarize('Num_Rides' = n())
+ggplot(x, aes(month, Num_Rides, fill = as.character(month))) + 
+   geom_bar(stat = 'identity') + theme_fivethirtyeight() +
+   theme(legend.position = 'none', 
+         axis.text.y = element_text(angle = 45, margin = margin(0,0,0,5)),
+         axis.title = element_text(size = 16),
+         plot.title = element_text(size = 20, hjust = 0.5)) + 
+   scale_y_continuous(labels = scales::comma, 
+                      breaks = c(250000, 500000, 750000, 1000000, 1250000)) +
+   scale_x_discrete(limits = month.abb) + 
+   ylab('Number of Rides') + xlab('Month') +
+   ggtitle('Monthly Distribution of Divvy Rides')
+```
+
+As expected, more individuals are riding Divvy's bikes in the summer, and the fewest are riding in the Winter. There is a gradual increase in riders from spring to summer, and a gradual decrease from fall through winter. 
+
+## Day
+```{r, echo = FALSE}
+bike$day <- bike$day + 1
+x <- bike %>% group_by(day) %>% summarise('Num_Rides' = n())
+ggplot(x, aes(day, Num_Rides, fill = as.character(day))) + 
+   geom_bar(stat = 'identity') + theme_fivethirtyeight() +
+   theme(legend.position = 'none', 
+         axis.text.y =  element_text(angle = 45, margin = margin(0,0,0,5)), 
+         axis.title = element_text(size = 16),
+         plot.title = element_text(size = 20, hjust = 0.5)) + 
+   scale_y_continuous(labels = scales::comma, 
+                      breaks = c(250000, 500000, 750000, 1000000, 1250000, 1500000)) +
+   scale_x_discrete(limits = c('Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun')) + 
+   ylab('Number of Rides') + xlab('Day') +
+   ggtitle('Daily Distribution of Divvy Rides')
+```
+
+We can observe that Divvy has more traffic during the weekdays more than the weekends. This lends evidence toward the idea that many of the users are riding to go to and from work or school. Monday and Friday have slightly fewer riders than the middle of the week, which can be explained by the fact that a decent number of people work 4-day work weeks. 
+
+
+## Hour
+```{r, echo = FALSE}
+bike$hour <- bike$hour + 1
+x <- bike %>% group_by(hour) %>% summarize('Num_Rides' = n())
+ggplot(x, aes(hour, Num_Rides, fill = as.character(hour))) + 
+   geom_bar(stat = 'identity') + theme_fivethirtyeight() +
+   theme(legend.position = 'none', 
+         axis.text.y =  element_text(angle = 45, margin = margin(0,0,0,5)), 
+         axis.title = element_text(size = 16),
+         plot.title = element_text(size = 20, hjust = 0.5),
+         axis.text.x = element_text(angle = 60)) + 
+   scale_y_continuous(labels = scales::comma, 
+                      breaks = c(250000, 500000, 750000, 1000000, 1250000)) +
+   scale_x_discrete(limits = c('12am', paste(1:11, 'am', sep = ''), 
+                               paste(c(12, 1:11), 'pm', sep = ''))) + 
+   ylab('Number of Rides') + xlab('Hour') +
+   ggtitle('Hourly Distribution of Divvy Rides')
+```
+
+We can observe that most of the users are riding in the hours leading up to work (6am-9am), and after work (4pm-7pm). We observe spikes consistent with those who work the typical 9-5. The first large spike is at 8am, when they're aiming to clock in at 9am, and the second large spike is at 5pm, when they're clocking out. 
+
+## Temperature
+```{r, echo = FALSE, fig.width=10}
+d1 <- ggplot(bike) + geom_density(aes(temperature), fill = '#FF2700', alpha = .7) + 
+   theme_fivethirtyeight() + 
+   scale_color_fivethirtyeight() + theme(plot.title = element_text(hjust = .5, size = 12)) + 
+   scale_x_continuous(breaks = seq(0,90,10)) + theme(axis.title = element_text()) + 
+   ggtitle('Distribution of Temperature During Rides') + 
+   xlab('Temperature (F)') + ylab('Density')
+
+d2 <- ggplot(bike, aes(temperature)) + stat_ecdf(colour = "#008FD5") + 
+   ggtitle('ECDF of Temperature') + theme_fivethirtyeight() + 
+   theme(plot.title = element_text(hjust = .5)) + xlab('Temperature') + ylab('ECDF') + 
+   scale_x_continuous(breaks = seq(0,90,10))
+grid.arrange(d1, d2, ncol = 2)
+
+```
+
+As one would expect, warmer weather is more comfortable to ride in. Over 50% of all rides are taken over 65 degrees. There appears to be a drop-off in users over 85 degrees, so 65-85 appears to be the sweet spot. 
+
+Snowy Chicago has hardly any riders - around 5% of rides occur when the weather is 30 degrees or below. That's to be expected, as that weather is extremely uncomfortable to ride in. 
+
+
+
+# Spatial Analysis 
+## Busiest Stations
+Divvy works by allowing users to ride between stations. The code below confirms that there are 656 unique stations. 
+
+```{r}
+length(unique(bike$from_station_name))
+length(unique(bike$to_station_name))
+```
+
+We can visualize where, on a map, these stations are scattered. 
+
+```{r, message = FALSE, warning=FALSE, error=FALSE, echo = FALSE}
+# Going to create a map df 
+# lat and long average lat and long of each start lat/long for that id 
+# 656 unique ids, so there will be 586 rows 
+map_df <- select(bike, from_station_name, latitude_start, longitude_start)
+map_df <- bike %>% group_by(from_station_name) %>% summarise('lat' = mean(latitude_start), 
+                                                           'long' = mean(longitude_start))
+# Create basis for map 
+City <- "Chicago, Illinois"
+basemap <- get_map(location = City, maptype = 'roadmap') 
+# Plot the map, rescale lon and lat to center better 
+ggmap(basemap) + 
+   geom_point(data = map_df, aes(x=long, y=lat), alpha = .6, colour = 'red') + 
+   scale_x_continuous(limits = c(-87.82, -87.48)) + 
+   scale_y_continuous(limits = lat <- c(41.7, 42.1)) + xlab('Longitude') + ylab('Latitude') + 
+   ggtitle('Map of Divvy Stations') + theme(plot.title = element_text(hjust = .5))
+```
+
+There appears to be a higher concentration of Divvy stations Downtown. This must mean that most of Divvy's users are riding Downtown. Divvy has the following pricing model: single rides are \$3 for every 30 min, and subscriptions can be purchased at \$15/day or \$99/year for different features. Depending on the usage nature of the rides in Downtown, there could potentially be a better pricing model available. 
+
+Not all stations are created equal, so we can confirm whether or not Downtown truly is the most busy. Let's observe which stations users leave from the most, and which stations users arrive at the most. 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height = 15, fig.width=12}
+x <- bike %>% group_by(from_station_name) %>% summarize('Num_Rides' = n()) %>% 
+   top_n(50, Num_Rides)
+# Reorder x to be descending
+stations1 <- x %>% arrange(Num_Rides) %>% 
+   mutate(from_station_name = factor(from_station_name, unique(from_station_name))) %>% 
+   ggplot(aes(reorder(from_station_name, Num_Rides), Num_Rides, 
+              fill = from_station_name)) + 
+   geom_bar(stat = 'identity') + coord_flip() + theme_fivethirtyeight() + 
+   theme(legend.position = 'none', axis.title = element_text()) + 
+   scale_fill_manual(values = heat.colors(50)) + 
+   ggtitle('Top 50 Most Used Start Stations') + ylab('Number of Rides') + xlab('')
+
+y <- bike %>% group_by(to_station_name) %>% summarize('Num_Rides' = n()) %>% 
+   top_n(50, Num_Rides)
+stations2 <-  y %>% arrange(Num_Rides) %>% 
+   mutate(to_station_name = factor(to_station_name, unique(to_station_name))) %>% 
+   ggplot(aes(reorder(to_station_name, Num_Rides), Num_Rides, 
+              fill = to_station_name)) + 
+   geom_bar(stat = 'identity') + coord_flip() + theme_fivethirtyeight() + 
+   theme(legend.position = 'none', axis.title = element_text()) + 
+   scale_fill_manual(values = heat.colors(50)) + 
+   ggtitle('Top 50 Most Used Start Stations') + ylab('Number of Rides') + xlab('')
+grid.arrange(stations1, stations2, ncol = 1)
+```
+
+Here's a map to visualize the same information: 
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE, fig.width = 10, fig.height = 6}
+x <- select(bike, from_station_name, latitude_end, longitude_end) %>% 
+   group_by(from_station_name) %>% 
+   summarise('lat' = mean(latitude_end), 'long' = mean(longitude_end), 
+             'Num_Rides' = n()) %>% arrange(Num_Rides) %>% 
+   mutate(from_station_name = factor(from_station_name, unique(from_station_name)))
+
+depart <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Num_Rides, 
+                                       color = Num_Rides), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Stations Riders Leave From') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank())+ 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Number of Riders') + 
+   scale_size_continuous(guide = FALSE)
+
+x <- select(bike, to_station_name, latitude_end, longitude_end) %>% 
+   group_by(to_station_name) %>% 
+   summarise('lat' = mean(latitude_end), 'long' = mean(longitude_end), 
+             'Num_Rides' = n()) %>% arrange(Num_Rides) %>% 
+   mutate(to_station_name = factor(to_station_name, unique(to_station_name)))
+
+arrive <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Num_Rides, 
+                                       color = Num_Rides), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Stations Riders Arrive In') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank())+ 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Number of Riders') + 
+   scale_size_continuous(guide = FALSE)
+
+grid.arrange(depart, arrive, ncol = 2)
+```
+
+We can see commuting patterns by splitting up the information above into night in day. In other words, we'll observe the number of riders who commute in the morning (5am - 10am) and the evening (4pm - 8pm) between Monday and Friday. 
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE, fig.width=12.5, fig.height = 12.5}
+x <- select(bike, from_station_name, latitude_start, longitude_start, hour, day) %>% 
+   filter(hour <= 10 & hour >= 5 & day %in% 1:5) %>% group_by(from_station_name) %>% 
+   summarise('lat' = mean(latitude_start), 'long' = mean(longitude_start), 
+             'Num_Rides' = n()) %>% arrange(Num_Rides) %>% 
+   mutate(from_station_name = factor(from_station_name, unique(from_station_name)))
+
+morning1 <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Num_Rides, 
+                                       color = Num_Rides), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Stations Morning Riders Leave From') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank()) + 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Number of Riders') + 
+   scale_size_continuous(guide = FALSE)
+
+# This is a map where folks are arriving to in the morning 
+x <- select(bike, to_station_name, latitude_end, longitude_end, hour, day) %>% 
+   filter(hour <= 10 & hour >= 5 & day %in% 1:5) %>% group_by(to_station_name) %>% 
+   summarise('lat' = mean(latitude_end), 'long' = mean(longitude_end), 
+             'Num_Rides' = n()) %>% arrange(Num_Rides) %>% 
+   mutate(to_station_name = factor(to_station_name, unique(to_station_name)))
+
+morning2 <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Num_Rides, 
+                                       color = Num_Rides), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Stations Morning Riders Arrive In') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank())+ 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Number of Riders') + 
+   scale_size_continuous(guide = FALSE)
+#grid.arrange(morning1, morning2, ncol = 1)
+
+# This is a map of where folks are leaving from in the evening 
+x <- select(bike, from_station_name, latitude_start, longitude_start, hour, day) %>% 
+   filter(hour <= 20 & hour >= 16 & day %in% 1:5) %>% group_by(from_station_name) %>% 
+   summarise('lat' = mean(latitude_start), 'long' = mean(longitude_start), 
+             'Num_Rides' = n()) %>% arrange(Num_Rides) %>% 
+   mutate(from_station_name = factor(from_station_name, unique(from_station_name)))
+
+evening1 <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Num_Rides, 
+                                       color = Num_Rides), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Stations Evening Riders Leave From') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank()) + 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Number of Riders') + 
+   scale_size_continuous(guide = FALSE)
+
+# This is a map of where evening riders arrive in 
+x <- select(bike, to_station_name, latitude_end, longitude_end, hour, day) %>% 
+   filter(hour <= 20 & hour >= 16 & day %in% 1:5) %>% group_by(to_station_name) %>% 
+   summarise('lat' = mean(latitude_end), 'long' = mean(longitude_end), 
+             'Num_Rides' = n()) %>% arrange(Num_Rides) %>% 
+   mutate(to_station_name = factor(to_station_name, unique(to_station_name)))
+
+evening2 <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Num_Rides, 
+                                       color = Num_Rides), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Stations Evening Riders Arrive In') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank()) + 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Number of Riders') + 
+   scale_size_continuous(guide = FALSE)
+grid.arrange(morning1, morning2, evening1, evening2, ncol = 2)
+```
+
+We can certainly see a pattern of riders leaving and returning home (or at least, in nearby neighborhoods) between morning and evening. What's more is that we actually see riders spread out around Chicago from centralized areas Downtown when they leave in the mornings. There is no discernable pattern outside this centroid. 
+
+A natural question to ask now is if Divvy has broken into the nightlife scene at all. We can potentially see whether or not this is true based on the riding patterns when people tend to go out to bars or clubs, on Friday and Saturday nights. More specifically, that's Friday (10pm-12am), Saturday (12am-4am, 10pm-12am), and Sunday (12am-4am). 
+
+```{r, message=FALSE, echo = FALSE, warning=FALSE, fig.width = 12.5, fig.height = 10}
+# Station nightlife riders leave from 
+# Include Fri-Sun because late Saturday night = Sunday morning
+x <- select(bike, from_station_name, latitude_start, longitude_start, hour, day) %>% 
+   filter(day %in% 5:7 & (hour >22 | hour <=5))
+# Remove Friday before 10pm 
+x <- x[!(x$day == 5 & x$hour <= 4), ]
+# Now group_by, arrange, mutate   
+x <- x %>% group_by(from_station_name) %>% summarise('lat' = mean(latitude_start), 
+                                                      'long' = mean(longitude_start), 
+                                                      'Num_Rides' = n()) %>%
+   arrange(Num_Rides) %>% 
+   mutate(from_station_name = factor(from_station_name, unique(from_station_name)))
+
+night_depart <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Num_Rides, 
+                                       color = Num_Rides), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Stations Nightlife Riders Leave From') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank()) + 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Number of Riders') + 
+   scale_size_continuous(guide = FALSE)
+
+
+# Stations nightlife riders arrive in 
+# Include Fri-Sun because late Saturday night = Sunday morning
+x <- select(bike, to_station_name, latitude_start, longitude_start, hour, day) %>% 
+   filter(day %in% 5:7 & (hour >22 | hour <=5))
+# Remove Friday before 10pm 
+x <- x[!(x$day == 5 & x$hour <= 4), ]
+# Now group_by, arrange, mutate   
+x <- x %>% group_by(to_station_name) %>% summarise('lat' = mean(latitude_start), 
+                                                      'long' = mean(longitude_start), 
+                                                      'Num_Rides' = n()) %>%
+   arrange(Num_Rides) %>% 
+   mutate(to_station_name = factor(to_station_name, unique(to_station_name)))
+
+
+night_arrive <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Num_Rides, 
+                                       color = Num_Rides), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Stations Nightlife Riders Arrive In') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank()) + 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Number of Riders') + 
+   scale_size_continuous(guide = FALSE)
+grid.arrange(night_depart, night_arrive, ncol = 2)
+```
+
+We can see that there is a consolidated band of riders arriving Downtown. We also see that there are many riders leaving far from Downtown, yet not nearly as many riders arriving in those same areas (in the areas outside the centroid). It is very possible that many users are riding Divvy bikes during their nights out - this graphic certainly backs up that idea. 
+
+I find it highly unlikely that many users are riding after drinking, however, and are more likely to be riding early on in the night. The following visualization can demonstrate when the riders are riding. 
+
+```{r, message=FALSE, echo = FALSE, warning=FALSE}
+x <- select(bike, from_station_name, latitude_start, longitude_start, hour, day) %>% 
+   filter(day %in% 5:7 & (hour > 22 | hour <=5))
+# Remove Friday before 10pm 
+x <- x[!(x$day == 5 & x$hour <= 5), ]
+x <- x %>% group_by(hour) %>% summarise('Num_Rides' = n())
+x$hour <- factor(x$hour, levels = c(23:24, 1:5))
+ggplot(x, aes(hour, Num_Rides, fill = as.character(hour))) + geom_bar(stat = 'identity') + theme_fivethirtyeight() +
+   scale_fill_manual(values = heat.colors(7)) + 
+   theme(legend.position = 'none', 
+         axis.text.y =  element_text(angle = 45, margin = margin(0,0,0,5)), 
+         axis.title = element_text(size = 16),
+         plot.title = element_text(size = 20, hjust = 0.5)) + 
+   scale_y_continuous(labels = scales::comma, 
+                      breaks = c(20000, 40000, 60000, 80000)) +
+   scale_x_discrete(labels = c(paste(10:11, 'pm', sep = ''), paste(1:5, 'am', sep = ''))) + 
+   ylab('Number of Rides') + xlab('Hour') +
+   ggtitle('Hourly Distribution of Nightlife Divvy Rides')
+
+```
+
+Therefore we can conclude that the majority of these rides are happening early in the night rather than later. 
+
+
+## Distance 
+If the pricing is based on time, and distance and time are inherently linked, it is valuable to also look into the distance travelled between stations. 
+
+First, we can use the latitude and longitude of the start and stop points to determine how long the trips are.
+
+```{r}
+# Function to get distance per row 
+mydist <- function(row){
+   start <- matrix(as.numeric(row[2:1]), ncol = 2)
+   end <- matrix(as.numeric(row[4:3]), ncol = 2)
+   distance <- spDistsN1(pts = start, pt = end, longlat = T)
+   return(distance)
+}
+# Filter relevant rows to speed up procesing a bit 
+distDf <- select(bike, 16:17, 21:22)
+# Pre-allocate space to vector x
+x <- numeric(nrow(distDf)) 
+# Apply function to distDf to get distance 
+x <- apply(distDf, 1, mydist)
+# Add to bike dataframe 
+bike$ride_distance <- x
+# There appear to be rides of 0 km. Let's remove these values. 
+condition <- bike$ride_distance!=0 # pre-allocate condition 
+bike <- filter(bike, condition)
+```
+
+We can view the distribution of the ride distances, as well as the average distance per station. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width = 10}
+# Density Plot of ride-distance 
+dens <- ggplot(bike) + geom_density(aes(ride_distance), fill = "#4C00FFFF", alpha = .7) + 
+   theme_fivethirtyeight() + ggtitle('Density Plot of Ride Distances') + 
+   scale_color_fivethirtyeight() + scale_fill_fivethirtyeight() + 
+   theme(axis.title = element_text(), plot.title = element_text(hjust = .5, size = 24),
+         axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16)) + 
+   xlab('Ride Distance (km)') + 
+   ylab('Density') 
+
+# ECDF of ride-distance
+dens_cdf <- ggplot(bike, aes(ride_distance)) + stat_ecdf(colour = "#4C00FFFF") + 
+   ggtitle('ECDF of Ride Distance') + theme_fivethirtyeight() + 
+   theme(plot.title = element_text(hjust = .5),
+         axis.title = element_text(size = 16, margin = c(0,10,0,0)),
+         axis.text.x = element_text(angle = 60)) + 
+   xlab('Ride Distance (km)') + ylab('Cumulative Density') + 
+   scale_x_continuous(breaks = seq(0, 10, .5), limits = c(0, 10)) + 
+   scale_y_continuous(breaks = seq(0, 1, .1))
+
+x <- bike %>% group_by(from_station_name) %>% 
+   summarise('lat' = mean(latitude_start), 'long' = mean(longitude_start),
+             'dist' = median(ride_distance)) %>% 
+   arrange(dist) %>% 
+   mutate(from_station_name = factor(from_station_name, levels = unique(from_station_name)))
+
+dist_map <- ggplot(x) + geom_point(aes(x = long, y = lat, size = dist, color = dist)) + 
+   theme_fivethirtyeight() + 
+   ggtitle('Map of Median Distance Per Station') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 22, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank()) + 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Ave. Dist') + 
+   scale_size_continuous(guide = FALSE)
+grid.arrange(dens, dens_cdf, ncol = 2)
+dist_map
+```
+
+We can also visualize the actual rides taken between a station with a high median distance, and one with a low median distance. 
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+x <- bike %>% group_by(from_station_name) %>% summarise('med_dist' = median(ride_distance))
+x <- x[order(x$med_dist, decreasing = T), ]
+# x[1,] and x[625, ] will be the streets we use for our maps. 
+
+# High distance
+station <- x[1, 1] %>% as.character()
+
+# Need two dataframes to create geom_path by group ids
+m1 <- filter(bike, from_station_name == station) %>% select(1, 16:17) # select id, lat, lon
+m2 <- filter(bike, from_station_name == station) %>% select(1, 21:22) # select id, lat, lon
+colnames(m1) <- c('id','lat', 'lon')
+colnames(m2) <- c('id','lat', 'lon')
+mapdf <- bind_rows(m1, m2) # combine
+
+high_dist <- ggmap(basemap) + geom_point(data = mapdf, aes(x=lon, y=lat), alpha = .5, colour = 'red') + 
+   geom_path(aes(x=lon, y=lat, group=id), data=mapdf, alpha = .5, colour = 'red') + 
+   scale_x_continuous(limits = c(-87.82, -87.48)) + 
+   scale_y_continuous(limits = lat <- c(41.8, 42.0)) + xlab('Longitude') + ylab('Latitude') +
+   ggtitle('Map of High Average Distance') + theme(plot.title = element_text(hjust = .5))
+
+# Low distance
+station <- x[625, 1] %>% as.character()
+# Need two dataframes to create geom_path by group ids
+m1 <- filter(bike, from_station_name == station) %>% select(1, 16:17) # select id, lat, lon
+m2 <- filter(bike, from_station_name == station) %>% select(1, 21:22) # select id, lat, lon
+colnames(m1) <- c('id','lat', 'lon')
+colnames(m2) <- c('id','lat', 'lon')
+mapdf <- bind_rows(m1, m2) # combine
+
+low_dist <- ggmap(basemap) + geom_point(data = mapdf, aes(x=lon, y=lat), alpha = .5, colour = 'red') + 
+   geom_path(aes(x=lon, y=lat, group=id), data=mapdf, alpha = .5, colour = 'red') + 
+   scale_x_continuous(limits = c(-87.82, -87.48)) + 
+   scale_y_continuous(limits = lat <- c(41.8, 42.0)) + xlab('Longitude') + ylab('Latitude') +
+   ggtitle('Map of Low Average Distance') + theme(plot.title = element_text(hjust = .5))
+grid.arrange(high_dist, low_dist, ncol = 2)
+```
+
+Average distance can clearly become skewed by a handful of rides, so it's not an especially reliable metric to determine whether or not riders truly ride more from certain stations. 
+
+We can create similar graphics in the above section re: commuting and nightlife to see if there's any pattern for median distance. 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 12.5, fig.height = 8}
+### AVE DISTANCE BY MORNING AND NIGHT 
+x <- select(bike, from_station_name, latitude_start, longitude_start, 
+            hour, day, ride_distance) %>% 
+   filter(hour <= 10 & hour >= 5 & day %in% 1:5) %>% group_by(from_station_name) %>% 
+   summarise('lat' = mean(latitude_start), 'long' = mean(longitude_start), 
+             'Med_Dist' = median(ride_distance)) %>% arrange(Med_Dist) %>% 
+   mutate(from_station_name = factor(from_station_name, unique(from_station_name)))
+
+morning3 <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Med_Dist, 
+                                       color = Med_Dist), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Stations Morning Riders Leave From') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank()) + 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Median Distance') + 
+   scale_size_continuous(guide = FALSE)
+
+
+ 
+x <- select(bike, from_station_name, latitude_start, longitude_start, 
+            hour, day, ride_distance) %>% 
+   filter(hour <= 20 & hour >= 16 & day %in% 1:5) %>% group_by(from_station_name) %>% 
+   summarise('lat' = mean(latitude_start), 'long' = mean(longitude_start), 
+             'Med_Dist' = median(ride_distance)) %>% arrange(Med_Dist) %>% 
+   mutate(from_station_name = factor(from_station_name, unique(from_station_name)))
+
+evening3 <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Med_Dist, 
+                                       color = Med_Dist), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Stations Evening Riders Leave From') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank()) + 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Median Distance') + 
+   scale_size_continuous(guide = FALSE)
+grid.arrange(morning3, evening3, ncol = 2)
+```
+
+Note that the color on the scales is different, but the size is comparable. It appears as though average distance tends to increase in the Downtown area, but stays approximately the same elsewhere. 
+
+Below is a plot of the average distance for users who ride during Friday and Saturday nights.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height = 6}
+# Station nightlife riders leave from 
+# Include Fri-Sun because late Saturday night = Sunday morning
+x <- select(bike, from_station_name, latitude_start, longitude_start, 
+            hour, day, ride_distance) %>% 
+   filter(day %in% 5:7 & (hour >22 | hour <=5))
+# Remove Friday before 10pm 
+x <- x[!(x$day == 5 & x$hour <= 4), ]
+# Now group_by, arrange, mutate   
+x <- x %>% group_by(from_station_name) %>% summarise('lat' = mean(latitude_start), 
+                                                      'long' = mean(longitude_start), 
+                                                      'Med_Dist' = median(ride_distance)) %>%
+   arrange(Med_Dist) %>% 
+   mutate(from_station_name = factor(from_station_name, unique(from_station_name)))
+
+night_dist <- ggplot(x) + geom_point(aes(x = long, y = lat, size = Med_Dist, 
+                                       color = Med_Dist), alpha = .5) + 
+   theme_hc(bgcolor = 'darkunica') + 
+   ggtitle('Median Distance Travelled for Nightlife Riders') + 
+   theme(legend.position = 'right', legend.direction = 'vertical', 
+         plot.title = element_text(hjust = .5, size = 18, face = 'bold'), 
+         axis.text = element_blank(), 
+         axis.title.x = element_blank(), axis.title.y = element_blank(), 
+         panel.grid.major.y = element_blank()) + 
+   scale_color_gradient(low = "#4C00FFFF", high = "#FFE0B3FF", name = 'Median Distance') + 
+   scale_size_continuous(guide = FALSE)
+night_dist
+```
+
+The above plot suggests that riders further from Downtown ride longer distances. This loosely backs up the earlier discussion that Divvy has broken into the Chicago nightlife scene. 
+
+## Time
+
+As noted earlier, Divvy's single-ride pricing model utilized only the ride-duration, so it's worth creating some visualizations for this variable as well. 
+
+Density and CDF: 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width = 10}
+# Density Plot of tripduration 
+duration_dens <- ggplot(bike) + 
+   geom_density(aes(tripduration), fill = "#4C00FFFF", alpha = .7) + 
+   theme_fivethirtyeight() + ggtitle('Density Plot of Trip Duration') + 
+   scale_color_fivethirtyeight() + scale_fill_fivethirtyeight() + 
+   theme(axis.title = element_text(), plot.title = element_text(hjust = .5, size = 24),
+         axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16)) + 
+   xlab('Trip Duration (Min)') + 
+   ylab('Density') 
+
+# ECDF of tripduration
+duration_cdf <- ggplot(bike, aes(tripduration)) + stat_ecdf(colour = "#4C00FFFF") + 
+   ggtitle('ECDF of Trip Duration') + theme_fivethirtyeight() + 
+   theme(plot.title = element_text(hjust = .5),
+         axis.title = element_text(size = 16, margin = c(0,10,0,0))) + 
+   xlab('Trip Duration (Min)') + ylab('Cumulative Density') + 
+   scale_x_continuous(breaks = seq(0, 40, 5), limits = c(0, 40)) + 
+   scale_y_continuous(breaks = seq(0, 1, .1))
+grid.arrange(duration_dens, duration_cdf, ncol = 2)
+```
+
+
+## Conclusion
+
+About 99% of all ride are shorter than 30 minutes, meaning only 1% of rides will yield an extra $3 from renewing the bike. However, 10% of rides are over 4 km and 25% are over 2.5 km.
+
+The correlation between ride distance and the duration of a trip is `r cor(bike$ride_distance, bike$tripduration)`, so much of the variation in ride-distance is accounted for in trip duration alone. However, creating a model for circumstances in which there is a low trip duration but high distance travelled or vice-versa might enable greater profit. Further investigation into this idea would require financial and marketing information. 
